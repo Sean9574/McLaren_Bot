@@ -1,0 +1,18 @@
+# Core dependencies
+onvif-zeep>=0.2.12
+opencv-python>=4.8.0
+numpy==1.26.4
+requests>=2.31.0
+
+# YOLO + GPU acceleration
+ultralytics>=8.4.0
+torch>=2.5.0
+torchvision>=0.20.0
+
+# TensorRT (optional — for ~3-5x faster inference on NVIDIA GPUs)
+# Comment out if not using NVIDIA GPU
+tensorrt>=10.0.0
+
+# ROS 2 utilities (optional — only needed for ROS 2 publishing)
+# These should already be installed if ROS 2 Humble is set up
+# cv-bridge — install via apt: sudo apt install ros-humble-cv-bridge
