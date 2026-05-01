@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# VS Code
+.vscode/
+
+# YOLO / model files
+*.pt
+*.onnx
+*.engine
+*.trt
+*.plan
+
+# Outputs
+runs/
+wandb/
+logs/
+checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
