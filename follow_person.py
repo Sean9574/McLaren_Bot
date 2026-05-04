@@ -858,15 +858,15 @@ class ONVIFSession:
 # =============================================================================
 
 PARAM_DEFS = [
-    ("dead_zone_px",   "Dead Zone (px)",         15, 180,    47,    1),
+    ("dead_zone_px",   "Dead Zone (px)",         15, 180,    67,    1),
     ("center_gain",    "Center Gain",             5, 500,   100,  100),
-    ("max_pan",        "Max Pan Speed",           5, 100,   88,  100),
-    ("max_tilt",       "Max Tilt Speed",          5, 100,   76,  100),
-    ("min_speed",      "Min Speed",               1,  50,    12,  100),
-    ("accel_limit",    "Accel Limit",             1, 500,   72,  100),
-    ("alpha",          "Target Smooth",           5,  95,    50,  100),
-    ("beta",           "Velocity Smooth",         1,  25,     7,  100),
-    ("cmd_interval",   "Cmd Interval ms",        10, 250,    1,    1),
+    ("max_pan",        "Max Pan Speed",           5, 100,   100,  100),
+    ("max_tilt",       "Max Tilt Speed",          5, 100,   100,  100),
+    ("min_speed",      "Min Speed",               1,  50,    20,  100),
+    ("accel_limit",    "Accel Limit",             1, 500,   100,  100),
+    ("alpha",          "Target Smooth",           5,  95,    31,  100),
+    ("beta",           "Velocity Smooth",         1,  25,     2,  100),
+    ("cmd_interval",   "Cmd Interval ms",        10, 250,    20,    1),
     ("kp_conf",        "Keypoint Conf %",         5,  95,    45,  100),
 ]
 
@@ -1088,8 +1088,14 @@ class AsyncYOLO:
 
 def maybe_export_tensorrt(model_path: str, imgsz: int) -> str:
     """
-    If model_path is a .pt file and a corresponding .engine doesn't exist,
-    export to TensorRT FP16. Returns the path to use (engine if available).
+    If model_path is a .pt file, ensure a matching TensorRT .engine exists.
+    Engines are cached per (model, imgsz) combination, so switching models
+    or image sizes will trigger a rebuild without overwriting other engines.
+
+    A rebuild is also triggered if the .pt file is newer than the .engine
+    (e.g. after re-downloading the weights).
+
+    Returns the path to use (engine if available, else the original .pt).
     """
     p = Path(model_path)
 
@@ -1100,23 +1106,43 @@ def maybe_export_tensorrt(model_path: str, imgsz: int) -> str:
         print(f"[TRT] {model_path} not found")
         return model_path
 
+    # If .pt doesn't exist locally, let Ultralytics download it first
     if not p.exists():
-        # Will be auto-downloaded by Ultralytics
-        return model_path
+        print(f"[TRT] {p.name} not found locally — downloading via Ultralytics")
+        try:
+            YOLO(str(p))  # triggers download into current directory
+        except Exception as e:
+            print(f"[TRT] Auto-download failed: {e}")
+            return model_path
+        # After download, the .pt should now exist in CWD
+        if not p.exists():
+            # Fall back to whatever path Ultralytics actually used
+            cwd_pt = Path.cwd() / p.name
+            if cwd_pt.exists():
+                p = cwd_pt
+            else:
+                print(f"[TRT] Could not locate downloaded .pt — giving up on TRT")
+                return model_path
 
+    # Engine name matches the .pt name — one engine per model, period.
     engine_path = p.with_suffix(".engine")
-    if engine_path.exists():
-        print(f"[TRT] Using cached engine: {engine_path}")
-        return str(engine_path)
 
-    print(f"[TRT] No engine found. Exporting {p.name} -> {engine_path.name}")
+    # Use cached engine if it's newer than the .pt source
+    if engine_path.exists():
+        if engine_path.stat().st_mtime >= p.stat().st_mtime:
+            print(f"[TRT] Using cached engine: {engine_path.name}")
+            return str(engine_path)
+        else:
+            print(f"[TRT] {p.name} is newer than {engine_path.name} — rebuilding")
+
+    print(f"[TRT] Exporting {p.name} (imgsz={imgsz}) -> {engine_path.name}")
     print(f"[TRT] This is a one-time process and may take 2-5 minutes...")
     try:
         m = YOLO(str(p))
         m.export(format="engine", half=True, imgsz=imgsz, device=0,
                  dynamic=False, simplify=True, workspace=4)
         if engine_path.exists():
-            print(f"[TRT] Export complete: {engine_path}")
+            print(f"[TRT] Export complete: {engine_path.name}")
             return str(engine_path)
         else:
             print(f"[TRT] Export failed silently — falling back to PyTorch")
