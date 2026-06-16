@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 -u
 """
 follow_person.py — OPTIMIZED FAST EDITION
 ==========================================
@@ -63,6 +63,7 @@ from __future__ import annotations
 import os as _early_os
 
 _early_os.environ.setdefault("QT_LOGGING_RULES", "*.debug=false;qt.qpa.*=false")
+import sys as _sys; _sys.stdout.reconfigure(line_buffering=True)
 
 import argparse
 import math
@@ -84,6 +85,13 @@ import numpy as np
 
 try:
     from onvif import ONVIFCamera
+    from zeep.transports import Transport as _ZeepTransport
+    _zeep_transport_orig_init = _ZeepTransport.__init__
+    def _zeep_transport_patched_init(self, *args, **kwargs):
+        kwargs.setdefault("timeout", 5)
+        kwargs.setdefault("operation_timeout", 5)
+        _zeep_transport_orig_init(self, *args, **kwargs)
+    _ZeepTransport.__init__ = _zeep_transport_patched_init
 except ImportError:
     raise SystemExit("ERROR: pip install onvif-zeep")
 
@@ -497,12 +505,15 @@ class FrameReader:
             import subprocess
             result = subprocess.run(
                 ["ffprobe", "-v", "error",
+                 "-rtsp_transport", "tcp",
+                 "-timeout", "8000000",
+                 "-analyzeduration", "500000",
+                 "-probesize", "500000",
                  "-select_streams", "v:0",
                  "-show_entries", "stream=width,height",
                  "-of", "csv=p=0:s=x",
-                 "-rtsp_transport", "tcp",
                  self._uri],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, timeout=12,
             )
             if result.returncode == 0 and result.stdout.strip():
                 parts = result.stdout.strip().split("x")
@@ -547,7 +558,7 @@ class FrameReader:
 
             try:
                 # Try to read a complete frame within 5 seconds
-                while time.time() - t0 < 5.0:
+                while time.time() - t0 < 15.0:  # longer timeout for NAT/remote streams
                     if proc.poll() is not None:
                         # Process died — capture stderr for diagnostics
                         err = proc.stderr.read().decode("utf-8", errors="ignore")
@@ -680,26 +691,66 @@ class ONVIFSession:
         self._last_sent_zoom = 0.0
 
     def connect(self):
+        """
+        Connect without calling update_xaddrs().
+
+        update_xaddrs() fetches WSDL files from the camera's own advertised
+        URLs (e.g. http://192.168.8.195:2000/...). When the camera is behind
+        a NAT port-forward those internal IPs are unreachable and the call
+        blocks forever. We skip it entirely and populate xaddrs manually
+        with the standard ONVIF service paths at the external IP+port.
+        """
         ports = [self.port] + [p for p in ONVIF_PORTS if p != self.port]
         for port in ports:
             try:
-                cam = ONVIFCamera(self.ip, port, self.user, self.password)
-                cam.update_xaddrs()
+                # Patch the default socket timeout so ONVIFCamera.__init__
+                # (which calls update_xaddrs internally) doesn't hang forever
+                # when the camera's internal IP is unreachable via NAT.
+                import socket as _socket
+                _orig_timeout = _socket.getdefaulttimeout()
+                _socket.setdefaulttimeout(5.0)
+                try:
+                    cam = ONVIFCamera(self.ip, port, self.user, self.password,
+                                      no_cache=True)
+                except Exception as _e:
+                    _socket.setdefaulttimeout(_orig_timeout)
+                    raise _e
+                _socket.setdefaulttimeout(_orig_timeout)
+                base = f"http://{self.ip}:{port}"
+                cam.xaddrs = {
+                    "http://www.onvif.org/ver10/device/wsdl":
+                        base + "/onvif/device_service",
+                    "http://www.onvif.org/ver10/media/wsdl":
+                        base + "/onvif/Media",
+                    "http://www.onvif.org/ver20/media/wsdl":
+                        base + "/onvif/Media",
+                    "http://www.onvif.org/ver20/ptz/wsdl":
+                        base + "/onvif/PTZ",
+                    "http://www.onvif.org/ver20/imaging/wsdl":
+                        base + "/onvif/Imaging",
+                    "http://www.onvif.org/ver10/events/wsdl":
+                        base + "/onvif/Events",
+                    "http://www.onvif.org/ver10/deviceIO/wsdl":
+                        base + "/onvif/DeviceIO",
+                }
                 self.cam = cam
                 self.port = port
+                print(f"[ONVIF] Connected to {self.ip}:{port}")
                 return True
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[ONVIF] Port {port} failed: {e}")
         return False
 
     def setup(self):
+        print("[ONVIF] Creating media service...")
         self.media_svc = self.cam.create_media_service()
+        print("[ONVIF] Creating PTZ service...")
         try:
             self.ptz_svc = self.cam.create_ptz_service()
             self.ptz_ok = True
         except Exception:
             self.ptz_ok = False
-
+        print("[ONVIF] Calling GetProfiles()...")
         profiles = self.media_svc.GetProfiles()
         self.profile = next(
             (p for p in profiles if getattr(p, "PTZConfiguration", None)),
@@ -1215,7 +1266,7 @@ def draw_target_overlay(frame, ax, ay, dz_px,
 
 def main():
     ap = argparse.ArgumentParser(description="Optimized PTZ person follower")
-    ap.add_argument("--ip",       default="192.168.8.195")
+    ap.add_argument("--ip",       default="10.0.11.162")
     ap.add_argument("--port",     type=int, default=2000)
     ap.add_argument("--user",     default="admin")
     ap.add_argument("--password", default="admin")
@@ -1231,7 +1282,8 @@ def main():
                     help="Disable automatic TensorRT export")
     ap.add_argument("--codec",    default="h265", choices=["h264", "h265"],
                     help="Video codec the camera is configured for (default h265)")
-    ap.add_argument("--tcp",      action="store_true")
+    ap.add_argument("--tcp",      action="store_true", default=True,
+                    help="Use TCP for RTSP (default True, more reliable over NAT)")
     ap.add_argument("--no-flip",  action="store_true")
     ap.add_argument("--rotate-image-180", dest="rotate_image_180",
                     action="store_true", default=None)
@@ -1253,7 +1305,7 @@ def main():
     ap.add_argument("--ros",      action="store_true")
     ap.add_argument("--substream", action="store_true",
                     help="Use sub stream (av1) instead of main (av0) — lower latency")
-    ap.add_argument("--rtsp-url", default=None,
+    ap.add_argument("--rtsp-url", default="rtsp://admin:admin@10.0.11.162:554/live/av0",
                     help="Override RTSP URL completely (skips ONVIF stream discovery)")
     args = ap.parse_args()
 

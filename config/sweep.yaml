@@ -1,0 +1,178 @@
+# PTZ Sweep Configuration
+# All parameters are tunable here — no code changes needed.
+
+sweep:
+  # Grid dimensions
+  pan_steps: 8          # Number of pan positions (columns)
+  tilt_steps: 4         # Number of tilt positions (rows)
+
+  # Pan range in ONVIF normalized units (-1.0 to 1.0)
+  pan_min: -1.0
+  pan_max:  1.0
+
+  # Tilt range in ONVIF normalized units (-1.0 to 1.0)
+  # Positive = up, negative = down
+  tilt_min: -0.3        # Don't tilt too far down (floor only)
+  tilt_max:  0.5        # Don't tilt too far up (ceiling only)
+
+  # Zoom (0.0 = wide, 1.0 = full zoom) — keep wide for scene coverage
+  zoom: 0.0
+
+  # Seconds to wait after each PTZ move before capturing
+  # Increase if images are blurry from motion
+  settle_time: 1.5
+
+  # After settling, wait for this many NEW frames from the stream before
+  # grabbing the keeper. Guarantees the saved frame is post-movement.
+  min_new_frames: 8
+
+  # Motion detection threshold for confirming camera is fully stopped.
+  # Mean pixel difference between consecutive frames must drop below this.
+  # Lower = stricter (waits for more complete stop). Raise if it times out.
+  motion_threshold: 1.5
+
+  # PTZ move speed (0.0-1.0). Lower = smoother stops, less overshoot.
+  ptz_speed: 0.5
+
+  # Seconds to wait for PTZ to reach position before giving up
+  move_timeout: 5.0
+
+  # Camera mounted upside down - rotate every frame 180 degrees
+  rotate_image_180: true
+
+  # Flip pan direction (if pan goes the wrong way with inverted mount)
+  invert_pan: false
+
+  # Image capture settings
+  capture_width: 1920
+  capture_height: 1080
+  capture_format: png    # png (lossless) or jpg
+
+  # Whether to capture in a snake pattern (reduces total PTZ travel)
+  # True = left-right, right-left, left-right...
+  # False = always left-to-right on each row
+  snake_pattern: true
+
+camera:
+  ip: "10.0.11.162"
+  port: 2000
+  rtsp_port: 554
+  user: "admin"
+  password: "admin"
+  rtsp_url: "rtsp://admin:admin@10.0.11.162:554/live/av0"
+  codec: "h265"
+
+  # --- Mechanical calibration (Minrray UV-series spec) ---
+  # ONVIF normalized -1..1 maps to these physical degree ranges.
+  # Pan is symmetric; tilt is NOT centered at zero.
+  pan_min_deg: -170.0    # ONVIF pan = -1.0
+  pan_max_deg:  170.0    # ONVIF pan = +1.0
+  tilt_min_deg: -30.0    # ONVIF tilt = -1.0
+  tilt_max_deg:  90.0    # ONVIF tilt = +1.0
+
+  # Field of view at capture zoom (zoom=0.0 = widest).
+  # Minrray wide ~ 60-70 deg horizontal. Adjust if stitching misaligns.
+  hfov_deg: 65.0
+  vfov_deg: 40.0
+
+server:
+  primary: "10.0.11.14"
+  fallback: "10.0.11.13"
+  user: "sbrainard"
+  # Home dir on .14 lives on the 2TB /data1 partition (561GB free) - plenty
+  data_root: "/home/sbrainard"
+  remote_base: "/home/sbrainard/mclaren_room_scanner/sessions"
+  remote_code_dir: "/home/sbrainard/mclaren_room_scanner"
+
+local:
+  sessions_dir: "sessions"
+
+processing:
+  # Which GPU to use on the server (0 or 1)
+  depth_gpu: 0          # Depth Pro
+  sam_gpu: 0            # SAM 3
+  vlm_gpu: 1            # Qwen3-VL
+  splat_gpu: 1          # Gaussian splatting (optional)
+
+  # Panorama output width (equirectangular, height = width/2).
+  # 4096 = good detail; drop to 2048 for faster iteration.
+  pano_width: 4096
+
+  # Stitching method:
+  #   "auto"   = try OpenCV feature-stitch, fall back to pose-based (default)
+  #   "opencv" = OpenCV feature-stitch only (best seams, can fail on blank walls)
+  #   "pose"   = pose-based projection only (always works, needs calibration)
+  stitch_method: "auto"
+
+  # --- SAM 3 segmentation ---
+  # sam3.pt is GATED (~3.45GB) - request access at
+  # https://huggingface.co/facebook/sam3, download once approved, and
+  # place it at the project root (or set an absolute path here).
+  sam3_weights: "sam3.pt"
+  sam3_conf: 0.25
+  # Concepts are queried in batches against cached image features
+  # (set_image runs once per frame, batches re-query cheaply)
+  sam3_concepts_per_batch: 8
+
+  # SAM 3 concept prompts — add/remove hazard categories here
+  hazard_concepts:
+    - "throw rug"
+    - "area rug"
+    - "loose rug"
+    - "electrical cord"
+    - "extension cord"
+    - "power cable"
+    - "phone charger cable"
+    - "wheeled chair"
+    - "office chair with wheels"
+    - "low table"
+    - "coffee table"
+    - "step stool"
+    - "threshold"
+    - "door threshold"
+    - "pet bowl"
+    - "shoes on floor"
+    - "clutter on floor"
+    - "wet floor"
+    - "loose floorboard"
+    - "raised carpet edge"
+    - "unstable furniture"
+    - "grab bar"           # presence = SAFE
+    - "handrail"           # presence = SAFE
+    - "non-slip mat"       # presence = SAFE
+    - "stair"
+    - "step"
+
+  # HOME FAST domains to score
+  home_fast_domains:
+    - floors
+    - furniture
+    - lighting
+    - bathroom
+    - storage
+    - stairs
+    - mobility_paths
+
+  # Minimum pathway clearance in meters (wheelchair = 0.92m / 36 inches)
+  min_clearance_m: 0.92
+
+  # Object height thresholds
+  floor_hazard_max_height_m: 0.15   # Objects ≤15cm = floor-level trip hazard
+  low_obstacle_max_height_m: 0.50   # Objects ≤50cm = low obstacle
+
+  # Gaussian splatting (optional, adds ~10 min)
+  run_splatting: false
+  splat_iterations: 7000
+
+viewer:
+  window_title: "McLaren Fall Risk Assessment"
+  point_size: 2.0
+  background_color: [0.12, 0.12, 0.14]   # Dark grey
+
+  # Risk severity colors (RGB)
+  colors:
+    high:   [1.0, 0.18, 0.18]   # Red
+    medium: [1.0, 0.65, 0.0]    # Orange
+    low:    [1.0, 1.0, 0.0]     # Yellow
+    safe:   [0.2, 0.9, 0.4]     # Green (grab bars, handrails)
+    normal: [0.7, 0.7, 0.7]     # Grey (non-hazard objects)

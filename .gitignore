@@ -2,26 +2,31 @@
 __pycache__/
 *.pyc
 *.pyo
+.Python
 *.egg-info/
-.venv/
-venv/
 
-# VS Code
-.vscode/
-
-# YOLO / model files
+# Model weights (large, gated, auto-downloaded via HF_TOKEN — see README)
 *.pt
 *.onnx
 *.engine
-*.trt
-*.plan
+sam3.pt
 
-# Outputs
-runs/
-wandb/
-logs/
-checkpoints/
+# Captured session data (frames, masks, depth, point clouds — large + local)
+sessions/
+data/raw/
+*.npz
 
-# OS files
+# Logs / caches
+*.log
+.pip_cache/
+.hf_cache/
+.torch_cache/
+
+# Editors / OS
+.vscode/
+.idea/
 .DS_Store
-Thumbs.db
+
+# Environment
+.env
+*.env
