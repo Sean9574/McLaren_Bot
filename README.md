@@ -29,11 +29,28 @@ one-time setup below.
 - Both machines on the same network as the camera, or otherwise able to
   reach its RTSP/ONVIF ports.
 
-The included `config/sweep.yaml` ships with placeholder values from the
-lab this was built in (camera IP `10.0.11.162`, server IP `10.0.11.14`,
-server user `sbrainard`, etc.) — **you must replace these with your own**
-before anything will work. See "Configuration" below for exactly which
-fields to change.
+## ⚠️ Values you must change before this will work
+
+`config/sweep.yaml` ships with placeholder values from the lab this was
+built in. None of them will work on your network. Every value below
+**must** be edited to match your own hardware before running anything:
+
+| Setting | Where | What it is | Example value in repo |
+|---|---|---|---|
+| `camera.ip` | `config/sweep.yaml` | Your PTZ camera's IP address | `10.0.11.162` |
+| `camera.port` | `config/sweep.yaml` | Camera's ONVIF control port | `2000` |
+| `camera.user` / `camera.password` | `config/sweep.yaml` | Camera login credentials | `admin` / `admin` |
+| `camera.rtsp_url` | `config/sweep.yaml` | Full RTSP stream URL (includes credentials) | `rtsp://admin:admin@10.0.11.162:554/live/av0` |
+| `camera.pan_min_deg` / `pan_max_deg` | `config/sweep.yaml` | Your camera's mechanical pan range — check its spec sheet | `-170.0` / `170.0` |
+| `camera.tilt_min_deg` / `tilt_max_deg` | `config/sweep.yaml` | Your camera's mechanical tilt range | `-30.0` / `90.0` |
+| `camera.hfov_deg` / `vfov_deg` | `config/sweep.yaml` | Your camera's field of view at zoom=0 | `65.0` / `40.0` |
+| `server.primary` | `config/sweep.yaml` | Your GPU server's IP address | `10.0.11.14` |
+| `server.user` | `config/sweep.yaml` | Your SSH username on that server | `sbrainard` |
+| `server.data_root` | `config/sweep.yaml` | A writable home/data directory on the server with enough free space (frames + model weights add up to several GB) | `/home/sbrainard` |
+| `HF_TOKEN` | your shell environment, not in any file | Your own Hugging Face access token (see step 4 below) | n/a — must be generated per-user |
+
+If something fails to connect, recheck this table first — it's almost
+always a leftover placeholder value.
 
 ## One-time setup
 
@@ -44,13 +61,8 @@ pip install -r requirements_laptop.txt
 sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-bad
 ```
 
-**2. Point the config at your hardware**
-
-Open `config/sweep.yaml` and edit:
-- `camera:` — your camera's IP, ONVIF port, RTSP credentials/URL, and its
-  mechanical pan/tilt range in degrees (check your camera's spec sheet —
-  these vary a lot between models).
-- `server:` — your server's IP and SSH username.
+**2. Edit `config/sweep.yaml`** using the table above — at minimum the
+`camera:` and `server:` sections need your own values, not the lab's.
 
 **3. Confirm SSH access to the server** (key-based auth recommended so the
 automated steps don't prompt for a password mid-pipeline):
@@ -63,8 +75,9 @@ included in this repo. To let the pipeline download them automatically:
    - Request access at https://huggingface.co/facebook/sam3 (approval is
      usually fast but isn't instant)
    - Create a read-access token at https://huggingface.co/settings/tokens
-   - Set it as an environment variable on your laptop — it gets forwarded
-     to the server automatically when needed:
+   - Set it as an environment variable on your laptop (this is personal
+     to your Hugging Face account — never commit it to git; it gets
+     forwarded to the server automatically when needed):
      ```bash
      echo 'export HF_TOKEN=hf_xxxxxxxxxxxx' >> ~/.bashrc
      source ~/.bashrc
@@ -95,13 +108,16 @@ camera):
 ```bash
 python run_scan.py capture --session my_room_01
 ```
-The camera sweeps through a grid of pan/tilt positions defined in
-`config/sweep.yaml`, waiting for it to fully stop moving before saving
-each frame (and rejecting blurry/corrupted frames automatically).
+`my_room_01` is just a name you choose for this scan — use anything
+descriptive (e.g. `living_room`, `test`). The camera sweeps through a
+grid of pan/tilt positions defined in `config/sweep.yaml`, waiting for it
+to fully stop moving before saving each frame (and rejecting blurry or
+corrupted frames automatically).
 
 **2. Process the scan** (run from the laptop — this pushes your captured
 frames to the server, runs the requested stage there, and pulls the
-results back automatically; no manual server login needed):
+results back automatically; no manual server login needed). Use the same
+session name you captured with:
 ```bash
 python run_scan.py process --session my_room_01 --stage stitch
 python run_scan.py process --session my_room_01 --stage segment
@@ -127,14 +143,16 @@ Everything that varies between installations lives in
 - `sweep:` — how densely the camera scans (grid size, settle time, motion
   detection sensitivity). Defaults are conservative; reduce settle time
   or grid density for faster scans once you trust your camera's behavior.
+  Generally safe to leave as-is when first trying this on new hardware.
 - `camera:` — network address, credentials, and mechanical calibration.
-  **You must set this correctly for your hardware** — the pan/tilt degree
-  ranges especially, since panorama stitching depends on them.
-- `server:` — SSH connection details and remote file paths.
+  **Must be set correctly for your hardware** — see the table above.
+- `server:` — SSH connection details and remote file paths. **Must be set
+  correctly for your hardware** — see the table above.
 - `processing:` — SAM 3 settings (confidence threshold, the list of
   hazard concepts it looks for, which you can freely edit to add/remove
-  hazard types) and HOME FAST scoring thresholds.
-- `viewer:` — window title, marker colors.
+  hazard types) and HOME FAST scoring thresholds. Safe defaults; edit the
+  `hazard_concepts` list to tune what gets detected.
+- `viewer:` — window title, marker colors. Cosmetic only.
 
 ## Troubleshooting
 
@@ -158,8 +176,19 @@ fails, the setup output will show exactly which install step failed.
 
 **SAM 3 weight download fails with a 403 or "gated repo" error** — your
 Hugging Face account hasn't been approved for `facebook/sam3` yet, or
-`HF_TOKEN` isn't set/exported. Request access and wait for approval; in
-the meantime you can still use the `stitch` stage.
+`HF_TOKEN` isn't set/exported on your laptop (run `echo $HF_TOKEN` to
+check). Request access and wait for approval; in the meantime you can
+still use the `stitch` stage.
+
+**Can't SSH / `rsync` fails with "connection refused" or similar** —
+double check `server.primary` and `server.user` in `config/sweep.yaml`
+match a server you can actually reach, and that you can manually
+`ssh <user>@<ip>` from the laptop first.
+
+**Panorama looks distorted or stitching fails entirely** — almost always
+incorrect `pan_min_deg`/`pan_max_deg`/`hfov_deg`/`vfov_deg` values for
+your specific camera model. These are mechanical specs, not something
+the software can infer — check your camera's documentation.
 
 ## Status
 
