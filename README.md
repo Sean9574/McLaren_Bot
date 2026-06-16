@@ -22,35 +22,47 @@ one-time setup below.
 
 ## What you need before starting
 
-- An ONVIF-compatible PTZ camera, reachable over the network, with RTSP
-  streaming enabled.
-- A GPU server reachable over SSH from the laptop (password or key auth
-  both work; the scripts use plain `ssh`/`rsync` commands).
-- Both machines on the same network as the camera, or otherwise able to
+- Access to the lab's PTZ camera (already set up with a static IP — see
+  "Fixed lab hardware" below) and the network it's on.
+- Your own account on the GPU server, reachable over SSH from your
+  laptop (password or key auth both work; the scripts use plain
+  `ssh`/`rsync` commands).
+- Your laptop on the same network as the camera, or otherwise able to
   reach its RTSP/ONVIF ports.
+
+## Fixed lab hardware (do not need to change)
+
+The PTZ camera in `config/sweep.yaml` is a static, lab-assigned device —
+its IP, ONVIF port, credentials, RTSP URL, and mechanical pan/tilt/FOV
+specs are fixed and shared by everyone using this system. You don't need
+to touch the `camera:` section unless the camera itself is physically
+replaced or its network config changes.
+
+| Setting | What it is | Lab value |
+|---|---|---|
+| `camera.ip` | PTZ camera's static IP | `10.0.11.162` |
+| `camera.port` | Camera's ONVIF control port | `2000` |
+| `camera.user` / `camera.password` | Camera login credentials | `admin` / `admin` |
+| `camera.rtsp_url` | Full RTSP stream URL | `rtsp://admin:admin@10.0.11.162:554/live/av0` |
+| `camera.pan_min_deg` / `pan_max_deg` | Mechanical pan range | `-170.0` / `170.0` |
+| `camera.tilt_min_deg` / `tilt_max_deg` | Mechanical tilt range | `-30.0` / `90.0` |
+| `camera.hfov_deg` / `vfov_deg` | Field of view at zoom=0 | `65.0` / `40.0` |
 
 ## ⚠️ Values you must change before this will work
 
-`config/sweep.yaml` ships with placeholder values from the lab this was
-built in. None of them will work on your network. Every value below
-**must** be edited to match your own hardware before running anything:
+These are tied to *your own* SSH/server access and Hugging Face account,
+not the lab's shared camera — every person running this needs their own:
 
-| Setting | Where | What it is | Example value in repo |
-|---|---|---|---|
-| `camera.ip` | `config/sweep.yaml` | Your PTZ camera's IP address | `10.0.11.162` |
-| `camera.port` | `config/sweep.yaml` | Camera's ONVIF control port | `2000` |
-| `camera.user` / `camera.password` | `config/sweep.yaml` | Camera login credentials | `admin` / `admin` |
-| `camera.rtsp_url` | `config/sweep.yaml` | Full RTSP stream URL (includes credentials) | `rtsp://admin:admin@10.0.11.162:554/live/av0` |
-| `camera.pan_min_deg` / `pan_max_deg` | `config/sweep.yaml` | Your camera's mechanical pan range — check its spec sheet | `-170.0` / `170.0` |
-| `camera.tilt_min_deg` / `tilt_max_deg` | `config/sweep.yaml` | Your camera's mechanical tilt range | `-30.0` / `90.0` |
-| `camera.hfov_deg` / `vfov_deg` | `config/sweep.yaml` | Your camera's field of view at zoom=0 | `65.0` / `40.0` |
-| `server.primary` | `config/sweep.yaml` | Your GPU server's IP address | `10.0.11.14` |
-| `server.user` | `config/sweep.yaml` | Your SSH username on that server | `sbrainard` |
-| `server.data_root` | `config/sweep.yaml` | A writable home/data directory on the server with enough free space (frames + model weights add up to several GB) | `/home/sbrainard` |
-| `HF_TOKEN` | your shell environment, not in any file | Your own Hugging Face access token (see step 4 below) | n/a — must be generated per-user |
+| Setting | Where | What it is |
+|---|---|---|
+| `server.primary` | `config/sweep.yaml` | The GPU server's IP address (shared infra — confirm with whoever manages it, but it's still environment-specific, not hardcoded into this repo's design) |
+| `server.user` | `config/sweep.yaml` | **Your own** SSH username on that server |
+| `server.data_root` | `config/sweep.yaml` | A writable home/data directory on the server with enough free space (frames + model weights add up to several GB) — usually `/home/<your-username>` |
+| `HF_TOKEN` | your shell environment, not in any file | **Your own** Hugging Face access token (see step 4 below) — every user needs their own, since it's tied to your personal HF account's approval for the gated SAM 3 weights |
 
 If something fails to connect, recheck this table first — it's almost
-always a leftover placeholder value.
+always a leftover placeholder value for `server.user` or a missing
+`HF_TOKEN`.
 
 ## One-time setup
 
@@ -61,8 +73,10 @@ pip install -r requirements_laptop.txt
 sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-bad
 ```
 
-**2. Edit `config/sweep.yaml`** using the table above — at minimum the
-`camera:` and `server:` sections need your own values, not the lab's.
+**2. Edit `config/sweep.yaml`** — set your own `server.user` and
+`server.data_root` under the `server:` section (see the table above).
+The `camera:` section is already correct for the lab's camera and
+shouldn't need changes.
 
 **3. Confirm SSH access to the server** (key-based auth recommended so the
 automated steps don't prompt for a password mid-pipeline):
@@ -144,10 +158,11 @@ Everything that varies between installations lives in
   detection sensitivity). Defaults are conservative; reduce settle time
   or grid density for faster scans once you trust your camera's behavior.
   Generally safe to leave as-is when first trying this on new hardware.
-- `camera:` — network address, credentials, and mechanical calibration.
-  **Must be set correctly for your hardware** — see the table above.
+- `camera:` — network address, credentials, and mechanical calibration
+  for the lab's PTZ camera. **Already set correctly — see "Fixed lab
+  hardware" above.** Only touch this if the physical camera changes.
 - `server:` — SSH connection details and remote file paths. **Must be set
-  correctly for your hardware** — see the table above.
+  to your own values** — see the "must change" table above.
 - `processing:` — SAM 3 settings (confidence threshold, the list of
   hazard concepts it looks for, which you can freely edit to add/remove
   hazard types) and HOME FAST scoring thresholds. Safe defaults; edit the
@@ -186,9 +201,10 @@ match a server you can actually reach, and that you can manually
 `ssh <user>@<ip>` from the laptop first.
 
 **Panorama looks distorted or stitching fails entirely** — almost always
-incorrect `pan_min_deg`/`pan_max_deg`/`hfov_deg`/`vfov_deg` values for
-your specific camera model. These are mechanical specs, not something
-the software can infer — check your camera's documentation.
+incorrect `pan_min_deg`/`pan_max_deg`/`hfov_deg`/`vfov_deg` values. These
+are fixed mechanical specs for the lab's camera (see "Fixed lab
+hardware") and shouldn't normally need editing — if you're seeing this,
+double-check nothing in `config/sweep.yaml` was accidentally changed.
 
 ## Status
 
