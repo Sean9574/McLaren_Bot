@@ -20,6 +20,40 @@ server, running the work there, and pulling the results back. You never
 need to manually log into the server for day-to-day use — only for the
 one-time setup below.
 
+## Quick Reference
+
+Everything you need to run the full system, in order, assuming setup
+(below) is already done:
+
+```bash
+# 1. Capture a scan (laptop, on the lab network)
+python run_scan.py capture --session my_room_01
+
+# 2. Build the panorama (laptop -> server -> laptop, automatic)
+python run_scan.py process --session my_room_01 --stage stitch
+
+# 3. Run SAM 3 segmentation (laptop -> server -> laptop, automatic)
+python run_scan.py process --session my_room_01 --stage segment
+
+# 4. View the results (laptop)
+python run_scan.py view --session my_room_01
+```
+
+### All commands
+
+| Command | What it does |
+|---|---|
+| `capture --session NAME` | Sweeps the PTZ camera through the configured grid and saves frames to `sessions/NAME/`. |
+| `preview --session NAME [--n N]` | Quick low-effort sweep (default 5 frames) to sanity-check camera/positioning before a full capture. |
+| `process --session NAME --stage STAGE` | Pushes code + session to the server, runs `STAGE` there, pulls results back. One command does the whole round trip. `STAGE` is one of `stitch`, `segment`, `depth`, `pointcloud`, `analysis`, `splat`, or `all` (default). Only `stitch` and `segment` are implemented today — see Status. |
+| `view --session NAME` | Opens the interactive 3D viewer for a processed session. |
+| `setup-server --stage STAGE` | One-time install of server-side Python dependencies for a given stage (`stitch`, `depth`, `segment`, or `full`). Run once per stage before using it. |
+| `transfer --session NAME` | Manually push code + session to the server without running anything (rarely needed — `process` does this automatically). |
+| `pull --session NAME` | Manually pull results back from the server without re-running anything (rarely needed — `process` does this automatically). |
+| `list` | Lists all local sessions. |
+| `status --session NAME` | Shows the processing status of a session (which stages have completed). |
+| `delete --session NAME` | Deletes a session's local data. |
+
 ## What you need before starting
 
 - Access to the lab's PTZ camera (already set up with a static IP — see
@@ -117,38 +151,26 @@ say exactly which step failed.
 
 ## Day-to-day usage
 
-**1. Capture a scan** (run from the laptop, on the same network as the
-camera):
-```bash
-python run_scan.py capture --session my_room_01
-```
-`my_room_01` is just a name you choose for this scan — use anything
-descriptive (e.g. `living_room`, `test`). The camera sweeps through a
-grid of pan/tilt positions defined in `config/sweep.yaml`, waiting for it
-to fully stop moving before saving each frame (and rejecting blurry or
-corrupted frames automatically).
+See **Quick Reference** above for the exact commands in order. A bit more
+detail on each step:
 
-**2. Process the scan** (run from the laptop — this pushes your captured
-frames to the server, runs the requested stage there, and pulls the
-results back automatically; no manual server login needed). Use the same
-session name you captured with:
-```bash
-python run_scan.py process --session my_room_01 --stage stitch
-python run_scan.py process --session my_room_01 --stage segment
-```
-Available stages today: `stitch` (builds the panorama) and `segment`
-(detects hazard concepts with SAM 3). More stages are planned — see
-"Status" below.
+**Capture** — `my_room_01` is just a name you choose for this scan; use
+anything descriptive (`living_room`, `test`, etc). The camera sweeps
+through a grid of pan/tilt positions defined in `config/sweep.yaml`,
+waiting for it to fully stop moving before saving each frame, and
+rejecting blurry or corrupted frames automatically.
 
-**3. View the results** (laptop):
-```bash
-python run_scan.py view --session my_room_01
-```
-This opens a window where you're placed inside the room's panorama —
-click and drag to look around in any direction, scroll to zoom. Detected
-hazards appear as colored markers (red = high risk, orange = medium,
-yellow = low, green = confirmed-safe feature like a grab bar) that you
-can click for details.
+**Process** — uses the same session name you captured with. This pushes
+your captured frames to the server, runs the requested stage there, and
+pulls the results back automatically — no manual server login needed.
+`stitch` builds the panorama; `segment` detects hazard concepts with
+SAM 3. More stages are planned — see "Status" below.
+
+**View** — opens a window where you're placed inside the room's
+panorama. Click and drag to look around in any direction, scroll to
+zoom. Detected hazards appear as colored markers (red = high risk,
+orange = medium, yellow = low, green = confirmed-safe feature like a
+grab bar) that you can click for details.
 
 ## Configuration reference
 
