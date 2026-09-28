@@ -11,8 +11,8 @@ Capture and viewing run on your computer. Processing runs in one of two places:
   given an account on it. `process` uploads your frames over SSH, runs the
   stage there and downloads the results automatically.
 - **Your own computer** (fallback if you have no server access). Add `--local`
-  to `process`. Stitching runs on any machine; hazard detection needs an
-  NVIDIA GPU.
+  to `process`. Stitching runs on any machine. Hazard detection uses your
+  NVIDIA GPU if you have one, otherwise the CPU (much slower).
 
 This repo also contains a separate person-following bot. See
 [Other scripts](#other-scripts).
@@ -58,8 +58,8 @@ than `server.primary` in the config.
 - **Lab WiFi** to reach the camera during `capture` and `preview`.
 - **Lab server path:** an account on the lab GPU server (ask the lab to set
   one up) and SSH key login.
-- **Local path:** an NVIDIA GPU with CUDA for `segment`. `stitch` and `view`
-  work on any computer.
+- **Local path:** any computer works. `segment` is much faster with an
+  NVIDIA GPU; without one it runs on the CPU. `stitch` and `view` don't need a GPU.
 - **For `segment` on either path:** a Hugging Face account approved for SAM 3
   (see setup step 2).
 
@@ -111,7 +111,7 @@ automatically.
 ### 3b. Your own computer (no server account)
 
 Skip the `server:` config entirely. `stitch` needs nothing beyond step 1.
-For `segment` (NVIDIA GPU only), install:
+For `segment` (an NVIDIA GPU is much faster, but the CPU works), install:
 
 ```bash
 pip install torch torchvision
@@ -146,7 +146,8 @@ editing it breaks stitching.
 
 **Tune anytime:** `sweep:` (grid density, settle time),
 `processing.hazard_concepts` (what SAM 3 looks for), `processing.sam_gpu`
-(which GPU runs SAM 3), `viewer:` (colors, cosmetic).
+(which GPU runs SAM 3; if this computer doesn't have that GPU, it uses the
+first one it has, or the CPU), `viewer:` (colors, cosmetic).
 
 ## Troubleshooting
 
@@ -164,8 +165,10 @@ editing it breaks stitching.
   the CLIP lines from step 3b.
 - **SAM 3 download 403/gated error**: your HF account isn't approved yet, or
   `HF_TOKEN` isn't set (check with `echo $HF_TOKEN`).
-- **CUDA / device errors on `segment --local`**: SAM 3 needs an NVIDIA GPU.
-  Use the lab server, or check `processing.sam_gpu`.
+- **`segment` is very slow on your computer**: there's no NVIDIA GPU, so
+  SAM 3 is running on the CPU (the log says so). Use the lab server if you can.
+- **CUDA out-of-memory on `segment` locally**: your GPU is too small for
+  SAM 3. Use the lab server, or try lowering `processing.sam3_concepts_per_batch`.
 - **Distorted panorama**: check that nothing in `camera:` was edited by
   accident.
 
