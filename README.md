@@ -10,8 +10,9 @@ Capture and viewing run on your computer. Processing runs in one of two places:
 - **Lab server** (default). This is the lab's GPU server, and you need to be
   given an account on it. `process` uploads your frames over SSH, runs the
   stage there and downloads the results automatically.
-- **Your own computer** (fallback if you have no server access). Add `--local`
-  to `process`. Stitching runs on any machine. Hazard detection uses your
+- **Your own computer** (automatic fallback). If `process` can't reach the
+  lab server, it runs the stage on your computer instead. Add `--local` to
+  skip the server. Stitching runs on any machine. Hazard detection uses your
   NVIDIA GPU if you have one, otherwise the CPU (much slower).
 
 This repo also contains a separate person-following bot. See
@@ -28,8 +29,9 @@ python run_scan.py process --session my_room_01 --stage segment  # 3. detect haz
 python run_scan.py view    --session my_room_01                  # 4. view results
 ```
 
-**No lab server access?** Add `--local` to steps 2 and 3 to run everything on
-your computer.
+**No lab server access?** Run the same commands. When `process` can't reach
+the lab server, it says so and runs on your computer instead. Add `--local` to
+skip the server check, or `--no-fallback` to stop with an error instead.
 
 > **Always pass `--stage`.** If you leave it out, `process` runs `all`, which
 > starts with the depth stage. That stage isn't built yet, so it fails before
@@ -39,8 +41,9 @@ your computer.
 |---|---|
 | `capture --session NAME` | Sweeps the camera and saves frames. Re-running resumes; `--no-resume` starts over |
 | `preview --session NAME` | Quick test sweep (5 frames; change with `--n`) |
-| `process --session NAME --stage STAGE` | Uploads to the lab server, runs `STAGE` there and downloads the results. `STAGE` = `stitch` or `segment` |
-| `process --session NAME --stage STAGE --local` | Runs `STAGE` on this computer instead. No server needed |
+| `process --session NAME --stage STAGE` | Uploads to the lab server, runs `STAGE` there and downloads the results. If the server can't be reached, runs on this computer instead. `STAGE` = `stitch` or `segment` |
+| `process ... --local` | Always runs on this computer, skipping the server |
+| `process ... --no-fallback` | Stops with an error if the server can't be reached, instead of running on this computer |
 | `view --session NAME` | Opens the 3D viewer |
 | `list` | Lists all sessions |
 | `status --session NAME` | Shows one session's progress |
@@ -121,7 +124,8 @@ pip install git+https://github.com/ultralytics/CLIP.git
 pip install "numpy<2"            # must come last (see Troubleshooting)
 ```
 
-Then add `--local` to every `process` command.
+No flags are needed: `process` falls back to your computer when it can't
+reach the lab server. Add `--local` to skip the few-second server check.
 
 ## Configuration
 
@@ -151,9 +155,10 @@ first one it has, or the CPU), `viewer:` (colors, cosmetic).
 
 ## Troubleshooting
 
-- **`Cannot reach <ip> as <user>`**: SSH key login isn't working. Check
-  `server.user` and run `ssh-copy-id` (setup step 3a). If you don't have a
-  server account, add `--local` instead.
+- **`Cannot reach <ip> as <user>` / `Lab server not reachable`**: SSH key
+  login isn't working, so `process` ran on your computer instead. If you have
+  a server account, check `server.user` and run `ssh-copy-id` (setup step 3a).
+  If you don't, this is expected.
 - **`ImportError: cannot import name 'run_depth'`**: you left out `--stage`,
   so it ran `all`. Pass `--stage stitch` or `--stage segment`.
 - **`No manifest at sessions/.../manifest.json`**: the upload didn't finish
@@ -175,7 +180,7 @@ first one it has, or the CPU), `viewer:` (colors, cosmetic).
 ## Status
 
 **Working:** capture, automated server upload/process/download, local
-processing (`--local`), panorama stitching, SAM 3 segmentation, 3D viewer
+processing (automatic fallback or `--local`), panorama stitching, SAM 3 segmentation, 3D viewer
 (it shows placeholder demo hazards for now).
 
 **Not built yet** (these files are empty stubs):

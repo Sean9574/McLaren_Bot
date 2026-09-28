@@ -156,9 +156,16 @@ def cmd_process(args, config):
     print("=" * 60)
 
     if not check_server(server, srv["user"]):
-        print("\n✗ Cannot reach server. Set up SSH keys with:")
-        print(f"  ssh-copy-id {srv['user']}@{server}")
-        sys.exit(1)
+        if getattr(args, "no_fallback", False):
+            print("\n✗ Cannot reach server. Set up SSH keys with:")
+            print(f"  ssh-copy-id {srv['user']}@{server}")
+            sys.exit(1)
+        # No lab server access (no account, no SSH key, or off the lab
+        # network): run on this machine instead.
+        print("\n⚠  Lab server not reachable — running on this computer instead.")
+        print("   To stop instead of falling back, add --no-fallback.\n")
+        args.local = True
+        return cmd_process(args, config)
 
     # Step 1: push code + session data
     if not getattr(args, "no_upload", False):
@@ -330,7 +337,10 @@ def main():
                              "pointcloud", "analysis", "splat"],
                    help="Which stage to run (default: all)")
     p.add_argument("--local", action="store_true",
-                   help="Run on THIS machine (used internally on the server)")
+                   help="Run on THIS machine, skipping the lab server")
+    p.add_argument("--no-fallback", action="store_true",
+                   help="If the lab server can't be reached, stop instead "
+                        "of running on this machine")
     p.add_argument("--no-upload", action="store_true",
                    help="Skip uploading code+frames (use what is on server)")
     p.add_argument("--server", default=None, help="Override server IP")

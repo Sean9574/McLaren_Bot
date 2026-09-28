@@ -99,11 +99,16 @@ def pull_results(session_name: str, server: str, user: str,
 
 def check_server(server: str, user: str) -> bool:
     """Quick SSH connectivity check."""
-    result = subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
-         f"{user}@{server}", "echo ok"],
-        capture_output=True, text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
+             f"{user}@{server}", "echo ok"],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        print(f"[Transfer] ✗ Cannot reach {server}: no 'ssh' program "
+              f"installed on this computer")
+        return False
     if result.returncode == 0:
         print(f"[Transfer] ✓ Server {server} reachable as {user}")
         return True
