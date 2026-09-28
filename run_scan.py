@@ -110,24 +110,39 @@ def cmd_process(args, config):
         session = Session(config["local"]["sessions_dir"], args.session)
         session.load()
 
+        ran = []
         if stage in ("all", "depth"):
             from perception.depth_pro import run_depth
             run_depth(session, config)
+            ran.append("depth")
         if stage in ("all", "stitch"):
             from geometry.pano_stitch import run_stitch
             run_stitch(session, config)
+            ran.append("stitch")
         if stage in ("all", "segment"):
             from perception.sam3 import run_segmentation
             run_segmentation(session, config)
+            ran.append("segment")
         if stage in ("all", "pointcloud"):
             from geometry.point_cloud import run_pointcloud
             run_pointcloud(session, config)
+            ran.append("pointcloud")
         if stage in ("all", "analysis"):
             from analysis.home_fast import run_analysis
             run_analysis(session, config)
+            ran.append("analysis")
         if stage in ("all", "splat") and config["processing"].get("run_splatting"):
             from splat.train_3dgs import run_splatting
             run_splatting(session, config)
+            ran.append("splat")
+
+        # Stages report failure through the manifest rather than raising,
+        # so check it instead of always claiming success.
+        failed = [s for s in ran if session.manifest.status.get(s) == "failed"]
+        if failed:
+            print(f"\n✗ Local processing failed at: {', '.join(failed)}. "
+                  f"See output above.")
+            sys.exit(1)
         print(f"\n✓ Local processing complete.")
         return
 
@@ -141,9 +156,16 @@ def cmd_process(args, config):
     print("=" * 60)
 
     if not check_server(server, srv["user"]):
-        print("\n✗ Cannot reach server. Set up SSH keys with:")
-        print(f"  ssh-copy-id {srv['user']}@{server}")
-        sys.exit(1)
+        if getattr(args, "no_fallback", False):
+            print("\n✗ Cannot reach server. Set up SSH keys with:")
+            print(f"  ssh-copy-id {srv['user']}@{server}")
+            sys.exit(1)
+        # No lab server access (no account, no SSH key, or off the lab
+        # network): run on this machine instead.
+        print("\n⚠  Lab server not reachable — running on this computer instead.")
+        print("   To stop instead of falling back, add --no-fallback.\n")
+        args.local = True
+        return cmd_process(args, config)
 
     # Step 1: push code + session data
     if not getattr(args, "no_upload", False):
@@ -165,6 +187,10 @@ def cmd_process(args, config):
     print("-" * 60)
     if not ok:
         print("\n✗ Remote processing failed. See output above.")
+        # Still fetch whatever finished (and the manifest's failed status)
+        print("\n[3/3] Downloading any partial results...")
+        pull_results(args.session, server, srv["user"],
+                     srv["remote_base"], config["local"]["sessions_dir"])
         sys.exit(1)
 
     # Step 3: pull results back
@@ -311,7 +337,10 @@ def main():
                              "pointcloud", "analysis", "splat"],
                    help="Which stage to run (default: all)")
     p.add_argument("--local", action="store_true",
-                   help="Run on THIS machine (used internally on the server)")
+                   help="Run on THIS machine, skipping the lab server")
+    p.add_argument("--no-fallback", action="store_true",
+                   help="If the lab server can't be reached, stop instead "
+                        "of running on this machine")
     p.add_argument("--no-upload", action="store_true",
                    help="Skip uploading code+frames (use what is on server)")
     p.add_argument("--server", default=None, help="Override server IP")

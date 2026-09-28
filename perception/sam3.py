@@ -100,7 +100,39 @@ def _ensure_weights(weights_path: str, repo_id: str = "facebook/sam3",
         return False
 
 
-def _load_predictor(weights_path: str, conf: float, device: int):
+def _pick_device(requested):
+    """
+    Choose where SAM 3 runs, so the config tuned for the lab server's two
+    A100s still works on other machines.
+
+    Returns (device, half):
+      - the requested GPU if this machine has it (same as before on the server)
+      - otherwise the first NVIDIA GPU
+      - otherwise the CPU, in full precision (FP16 is GPU-only), and slow
+    """
+    if str(requested).lower() == "cpu":
+        return "cpu", False
+
+    import torch
+    if not torch.cuda.is_available():
+        print("[SAM3] No NVIDIA GPU found — running on the CPU. "
+              "This works but is much slower than a GPU.")
+        return "cpu", False
+
+    n_gpus = torch.cuda.device_count()
+    try:
+        index = int(requested)
+    except (TypeError, ValueError):
+        index = -1
+    if 0 <= index < n_gpus:
+        return index, True
+
+    print(f"[SAM3] GPU {requested} not found on this machine "
+          f"({n_gpus} GPU(s) available) — using GPU 0 instead.")
+    return 0, True
+
+
+def _load_predictor(weights_path: str, conf: float, device, half: bool = True):
     """Create a SAM3SemanticPredictor. Raises a clear error if weights missing."""
     if not _ensure_weights(weights_path):
         token_hint = "" if (os.environ.get("HF_TOKEN")
@@ -159,7 +191,7 @@ def _load_predictor(weights_path: str, conf: float, device: int):
         task="segment",
         mode="predict",
         model=str(weights_path),
-        half=True,        # FP16 for speed on A100
+        half=half,        # FP16 for speed on GPU (A100); must be off on CPU
         save=False,
         device=device,
         verbose=False,
@@ -253,7 +285,12 @@ def run_segmentation(session, config):
 
     conf = proc.get("sam3_conf", 0.25)
     batch_size = proc.get("sam3_concepts_per_batch", 8)
-    device = proc.get("sam_gpu", 0)
+    try:
+        device, half = _pick_device(proc.get("sam_gpu", 0))
+    except ImportError as e:
+        print(f"\n[SAM3] SETUP REQUIRED:\nCould not import torch: {e}\n")
+        session.set_status("segment", "failed")
+        return
 
     print(f"[SAM3] Weights: {weights}")
     print(f"[SAM3] Concepts ({len(concepts)}): {', '.join(concepts[:5])}"
@@ -261,7 +298,7 @@ def run_segmentation(session, config):
     print(f"[SAM3] conf={conf}  batch_size={batch_size}  device={device}")
 
     try:
-        predictor = _load_predictor(weights, conf, device)
+        predictor = _load_predictor(weights, conf, device, half)
     except (FileNotFoundError, ImportError) as e:
         print(f"\n[SAM3] SETUP REQUIRED:\n{e}\n")
         session.set_status("segment", "failed")
